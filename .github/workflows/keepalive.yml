@@ -1,0 +1,23 @@
+name: keepalive
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"    # каждый понедельник в 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write           # право управлять workflow'ами репозитория
+
+jobs:
+  ping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Сбросить счётчик неактивности
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for wf in relay.yml keepalive.yml; do
+            echo "Включаю $wf"
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable"
+          done
