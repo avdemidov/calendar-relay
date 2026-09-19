@@ -1,0 +1,64 @@
+name: calendar-relay
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   
+  workflow_dispatch:          # плюс кнопка ручного запуска
+
+permissions:
+  contents: write             # разрешаем заданию коммитить в репозиторий
+
+concurrency:
+  group: calendar-relay       # два запуска одновременно не пойдут
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Забрать репозиторий на машину
+        uses: actions/checkout@v4
+
+      - name: Поставить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Поставить Playwright и Chromium
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Скачать календарь
+        env:
+          CAL_SITE:    ${{ secrets.CAL_SITE }}
+          CAL_ICS_URL: ${{ secrets.CAL_ICS_URL }}
+          CAL_OUT:     docs/p4dng5uu7t8n9kwr3a.ics
+        run: python fetch.py
+
+      - name: Выгрузить отладку, если упало
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug
+          path: debug/
+          if-no-files-found: ignore
+
+      - name: Отбросить косметические изменения
+        run: |
+          F=docs/p4dng5uu7t8n9kwr3a.ics
+          git show "HEAD:$F" > /tmp/old.ics 2>/dev/null || { echo "первый запуск"; exit 0; }
+          norm() { grep -av -E '^(DTSTAMP|PRODID)' "$1" | tr -d '\r'; }
+          if diff -q <(norm /tmp/old.ics) <(norm "$F") >/dev/null; then
+            cp /tmp/old.ics "$F"
+            echo "Поменялись только служебные поля"
+          fi
+
+      - name: Закоммитить
+        run: |
+          git config user.name  "calendar-relay[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A docs/
+          git diff --cached --quiet && { echo "Изменений нет"; exit 0; }
+          git commit -m "calendar: $(date -u +%FT%TZ)"
+          git push
